@@ -20,16 +20,50 @@ using namespace std;
 
 	Functions:
 */
+
+class Transaction {
+private:
+	string sender;
+	string receiver;
+	string data;
+public:
+	Transaction(nlohmann::json sender, nlohmann::json reciever, string data) {
+		
+		this->sender = sender;
+		this->receiver = reciever;
+		this->data = data;
+	}
+
+	nlohmann::json to_json() {
+		nlohmann::json j;
+		j["sender"] = sender;
+		j["receiver"] = receiver;
+		j["data"] = data;
+		return j;
+	}
+	string getSender() {
+		return sender;
+	}
+
+	string getReciever() {
+		return receiver;
+	}
+
+	string getData() {
+		return data;
+	}
+};
+
 class Block {
 private:
 	int index;
 	std::string prevHash;
-	std::string data;
+	Transaction data;
 	time_t timestamp;
 	std::string currHash;
 public:
 	//int nonce;
-	Block(int idx, std::string pHash, std::string cData, time_t ts = std::time(nullptr)) : index(idx), prevHash(pHash), data(cData), timestamp(ts) {
+	Block(int idx, std::string pHash, Transaction cData, time_t ts = std::time(nullptr)) : index(idx), prevHash(pHash), data(cData), timestamp(ts) {
 
 		currHash = getHash();
 	};
@@ -38,7 +72,7 @@ public:
 	nlohmann::json to_json() {
 		nlohmann::json j;
 		j["index"] = index;
-		j["data"] = data;
+		j["transaction"] = data.to_json();
 		j["timestamp"] = timestamp;
 		j["prevHash"] = prevHash;
 		j["currHash"] = currHash;
@@ -48,7 +82,7 @@ public:
 	std::string getHash()
 	{
 		std::stringstream ss;
-		ss << prevHash << data << timestamp;
+		ss << prevHash << data.to_json() << timestamp;
 		return sha256(ss.str());
 	}
 
@@ -72,14 +106,14 @@ public:
 
 	Blockchain() {
 		index = 0;
-		chain.push_back(Block(index, "0", "Genesis Block"));
+		chain.push_back(Block(index, "0", Transaction(std::string("0").c_str(), std::string("0").c_str(), "Genesis block")));
 	}
 
 	//function to update the chain with previously saved json data
 	void updateChain(nlohmann::json j) {
 		chain.clear();
 		for (auto& element : j["chain"]) {
-			chain.push_back(Block(element["index"], element["prevHash"], element["data"], element["timestamp"]));
+			chain.push_back(Block(element["index"], element["prevHash"], Transaction(element["transaction"]["sender"], element["transaction"]["receiver"], element["transaction"]["data"]), element["timestamp"]));
 		}
 	}
 	std::vector<Block> getChain() {
@@ -129,7 +163,7 @@ public:
 		return true;
 	}
 
-	void addBlock(std::string data, std::string pubKey, std::string signature) {
+	void addBlock(Transaction data, std::string pubKey, std::string signature) {
 
 		auto verifySignature = [](std::string pubKey, std::string data, std::string signature) -> bool {
 			try
@@ -155,44 +189,17 @@ public:
 		std::cout << data << std::endl;*/
 		
 		//data recieved is already in hash
-		const std::string dataHash = data;
+		const std::string dataHash = data.getData();
 		bool isValid = verifySignature(pubKey, dataHash, signature);
 		if (isValid) {
 			index++;
-			Block newBlock(index, getLastBlock().getHash(), dataHash);
+			Block newBlock(index, getLastBlock().getHash(), data);
 			this->mine(2);
 			chain.push_back(newBlock);
 		}
 		else {
 			std::cout << "Invalid Signature" << std::endl;
 		}
-	}
-
-	void sendData(std::string data, std::string senderPubKey, std::string senderPvtKey, std::string recieverPubKey)
-	{
-		//std::cout << data << std::endl;
-		//data recieved is already in hash
-		const std::string dataHash = data;
-		//std::cout << dataHash << std::endl;
-
-		auto generateSignature = [](std::string privKey, std::string data) -> std::string
-		{
-			std::string signature;
-			CryptoPP::AutoSeededRandomPool rng;
-			CryptoPP::RSASSA_PKCS1v15_SHA_Signer privkey;
-			privkey.AccessKey().Load(CryptoPP::StringSource(privKey, true, new CryptoPP::Base64Decoder).Ref());
-			CryptoPP::StringSource(data, true,
-				new CryptoPP::SignerFilter(rng, privkey,
-					new CryptoPP::StringSink(signature)
-				)
-			);
-			return signature;
-		};
-
-		std::string signature = generateSignature(senderPvtKey, dataHash);
-		//std::cout << signature << std::endl;
-
-		this->addBlock(data, senderPubKey, signature);
 	}
 
 	nlohmann::json to_json()
@@ -229,14 +236,14 @@ public:
 	Wallet(Blockchain& chain, std::string uid, SQLite::Database& db) : uid(uid)
 	{
 		this->db = &db;
-		std::cout << "Generating Wallet..." << std::endl;
 
 		SQLite::Statement selectUser(*this->db, "SELECT * FROM user WHERE uid = ?");
 		selectUser.bind(1, uid);
 
 		if (selectUser.executeStep()) {
-
 			
+			std::cout << "Getting data from db" << std::endl;
+
 			this->uid = selectUser.getColumn(0).getString();
 			this->pubKey = selectUser.getColumn(1).getString();
 			this->privKey = selectUser.getColumn(2).getString();
@@ -281,10 +288,9 @@ public:
 		std::cout << this->pubKey << std::endl;*/
 	}
 
-	void sendData(std::string data, std::string recieverPubKey)
+	void sendData(Transaction data, std::string recieverPubKey)
 	{
 		//std::cout << data << std::endl;
-		const std::string dataHash = data;
 		//std::cout << dataHash << std::endl;
 
 		auto generateSignature = [](std::string privKey, std::string data) -> std::string
@@ -301,10 +307,10 @@ public:
 			return signature;
 		};
 
-		std::string signature = generateSignature(this->privKey, dataHash);
+		std::string signature = generateSignature(this->privKey, data.getData());
 		//std::cout << signature << std::endl;
 
-		this->cc->addBlock(dataHash, this->pubKey, signature);
+		this->cc->addBlock(data, this->pubKey, signature);
 	}
 
 	std::string getPrivateKey()
