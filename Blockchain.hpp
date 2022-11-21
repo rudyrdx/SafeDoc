@@ -1,16 +1,15 @@
 #pragma once
+#include <cryptopp/rsa.h>
+#include <cryptopp/base64.h>
+#include <cryptopp/osrng.h>
 #include <string>
 #include <iomanip>
-#include <vector>
-#include <sstream>
 #include "json.hpp"
 #include "sha256.hpp"
+#include <SQLiteCpp/SQLiteCpp.h>
+#include <SQLiteCpp/VariadicBind.h>
+using namespace std;
 
-#include <cryptopp/rsa.h>
-#include <cryptopp/osrng.h>
-#include <cryptopp/base64.h>
-#include <cryptopp/files.h>
-using namespace CryptoPP;
 /*
 	Description: Stores Data of a transaction
 	Structure:
@@ -23,25 +22,27 @@ using namespace CryptoPP;
 */
 class Block {
 private:
+	int index;
 	std::string prevHash;
 	std::string data;
 	time_t timestamp;
 	std::string currHash;
 public:
 	//int nonce;
-	Block(std::string pHash, std::string cData, time_t ts = std::time(nullptr)) : prevHash(pHash), data(cData), timestamp(ts) {
-		
+	Block(int idx, std::string pHash, std::string cData, time_t ts = std::time(nullptr)) : index(idx), prevHash(pHash), data(cData), timestamp(ts) {
+
 		currHash = getHash();
 	};
 
 	//string operator
-	std::string to_json() {
+	nlohmann::json to_json() {
 		nlohmann::json j;
-		j["prevHash"] = prevHash;
+		j["index"] = index;
 		j["data"] = data;
 		j["timestamp"] = timestamp;
+		j["prevHash"] = prevHash;
 		j["currHash"] = currHash;
-		return j.dump(2);
+		return j;
 	}
 
 	std::string getHash()
@@ -57,19 +58,32 @@ public:
 	}
 	std::string getCurrHash()
 	{
-		return prevHash;
+		return currHash;
 	}
-	
+
 };
 
 class Blockchain
 {
 private:
+	int index;
 	std::vector<Block> chain;
 public:
 
 	Blockchain() {
-		chain.push_back(Block("0", "Genesis Block"));
+		index = 0;
+		chain.push_back(Block(index, "0", "Genesis Block"));
+	}
+
+	//function to update the chain with previously saved json data
+	void updateChain(nlohmann::json j) {
+		chain.clear();
+		for (auto& element : j["chain"]) {
+			chain.push_back(Block(element["index"], element["prevHash"], element["data"], element["timestamp"]));
+		}
+	}
+	std::vector<Block> getChain() {
+		return chain;
 	}
 
 	//get Last Block
@@ -83,7 +97,7 @@ public:
 		std::cout << "mining..." << std::endl;
 		while (true)
 		{
-			std::string hash = sha256(std::to_string(solution));
+			std::string hash = sha256(std::to_string(solution) + getLastBlock().getCurrHash());
 			if (hash.substr(0, dificulty) == std::string(dificulty, '0'))
 			{
 				std::cout << "mined: " << hash << std::endl;
@@ -114,23 +128,24 @@ public:
 		}
 		return true;
 	}
-	
+
 	void addBlock(std::string data, std::string pubKey, std::string signature) {
+
 		auto verifySignature = [](std::string pubKey, std::string data, std::string signature) -> bool {
 			try
 			{
-				RSASSA_PKCS1v15_SHA_Verifier verifier;
-				verifier.AccessKey().Load(StringSource(pubKey, true, new Base64Decoder).Ref());
-				StringSource(data + signature, true,
-					new SignatureVerificationFilter(
+				CryptoPP::RSASSA_PKCS1v15_SHA_Verifier verifier;
+				verifier.AccessKey().Load(CryptoPP::StringSource(pubKey, true, new CryptoPP::Base64Decoder).Ref());
+				CryptoPP::StringSource(data + signature, true,
+					new CryptoPP::SignatureVerificationFilter(
 						verifier, NULL,
-						SignatureVerificationFilter::THROW_EXCEPTION
+						CryptoPP::SignatureVerificationFilter::THROW_EXCEPTION
 					)
 				);
 				return true;
 
 			}
-			catch (SignatureVerificationFilter::SignatureVerificationFailed& err)
+			catch (CryptoPP::SignatureVerificationFilter::SignatureVerificationFailed& err)
 			{
 				return false;
 			}
@@ -139,10 +154,12 @@ public:
 		/*std::cout << signature << std::endl;
 		std::cout << data << std::endl;*/
 		
-		const std::string dataHash = sha256(data);
+		//data recieved is already in hash
+		const std::string dataHash = data;
 		bool isValid = verifySignature(pubKey, dataHash, signature);
 		if (isValid) {
-			Block newBlock(getLastBlock().getHash(), data);
+			index++;
+			Block newBlock(index, getLastBlock().getHash(), dataHash);
 			this->mine(2);
 			chain.push_back(newBlock);
 		}
@@ -151,44 +168,113 @@ public:
 		}
 	}
 
-	void printChain() {
-		for (auto block : chain) {
-			std::cout << block.to_json() << std::endl;
+	void sendData(std::string data, std::string senderPubKey, std::string senderPvtKey, std::string recieverPubKey)
+	{
+		//std::cout << data << std::endl;
+		//data recieved is already in hash
+		const std::string dataHash = data;
+		//std::cout << dataHash << std::endl;
+
+		auto generateSignature = [](std::string privKey, std::string data) -> std::string
+		{
+			std::string signature;
+			CryptoPP::AutoSeededRandomPool rng;
+			CryptoPP::RSASSA_PKCS1v15_SHA_Signer privkey;
+			privkey.AccessKey().Load(CryptoPP::StringSource(privKey, true, new CryptoPP::Base64Decoder).Ref());
+			CryptoPP::StringSource(data, true,
+				new CryptoPP::SignerFilter(rng, privkey,
+					new CryptoPP::StringSink(signature)
+				)
+			);
+			return signature;
+		};
+
+		std::string signature = generateSignature(senderPvtKey, dataHash);
+		//std::cout << signature << std::endl;
+
+		this->addBlock(data, senderPubKey, signature);
+	}
+
+	nlohmann::json to_json()
+	{
+		nlohmann::json j;
+		for (int i = 0; i < chain.size(); i++)
+		{
+			j["chain"].push_back(chain[i].to_json());
 		}
+		return j;
+	}
+
+	void printChain() {
+
+		nlohmann::json j;
+		for (int i = 0; i < chain.size(); i++)
+		{
+			j["chain"].push_back(chain[i].to_json());
+		}
+		std::cout << j.dump(4) << std::endl;
 	}
 };
 
 class Wallet {
 private:
+	std::string uid;
 	std::string pubKey;
 	std::string privKey;
 	Blockchain* cc;
+	SQLite::Database* db;
 public:
 	//Usually the constructor will be called with a private key 
 	//but for now, lets generate
-	Wallet(Blockchain& chain)
+	Wallet(Blockchain& chain, std::string uid, SQLite::Database& db) : uid(uid)
 	{
-		auto generateKeyPair = [](int mod) -> std::pair<std::string, std::string> {
-			AutoSeededRandomPool rng;
-			RSA::PrivateKey pvtKey;
-			pvtKey.GenerateRandomWithKeySize(rng, mod);
-			std::string pvt;
-			Base64Encoder privkeysink(new StringSink(pvt));
-			pvtKey.DEREncode(privkeysink);
-			privkeysink.MessageEnd();
-			RSA::PublicKey pubKey(pvtKey);
-			std::string pub;
-			Base64Encoder pubkeysink(new StringSink(pub));
-			pubKey.DEREncode(pubkeysink);
-			pubkeysink.MessageEnd();
-			return std::make_pair(pub, pvt);
-		};
+		this->db = &db;
+		std::cout << "Generating Wallet..." << std::endl;
 
-		auto [pubKey, privKey] = generateKeyPair(512);
+		SQLite::Statement selectUser(*this->db, "SELECT * FROM user WHERE uid = ?");
+		selectUser.bind(1, uid);
 
-		this->pubKey = pubKey;
-		this->privKey = privKey;
-		
+		if (selectUser.executeStep()) {
+
+			
+			this->uid = selectUser.getColumn(0).getString();
+			this->pubKey = selectUser.getColumn(1).getString();
+			this->privKey = selectUser.getColumn(2).getString();
+		}
+		else {
+			std::cout << "Adding a user" << std::endl;
+
+			auto generateKeyPair = [](int mod) -> std::pair<std::string, std::string> {
+				CryptoPP::AutoSeededRandomPool rng;
+				CryptoPP::RSA::PrivateKey pvtKey;
+				pvtKey.GenerateRandomWithKeySize(rng, mod);
+				std::string pvt;
+				CryptoPP::Base64Encoder privkeysink(new CryptoPP::StringSink(pvt));
+				pvtKey.DEREncode(privkeysink);
+				privkeysink.MessageEnd();
+				CryptoPP::RSA::PublicKey pubKey(pvtKey);
+				std::string pub;
+				CryptoPP::Base64Encoder pubkeysink(new CryptoPP::StringSink(pub));
+				pubKey.DEREncode(pubkeysink);
+				pubkeysink.MessageEnd();
+				return std::make_pair(pub, pvt);
+			};
+
+			auto [pubKey, privKey] = generateKeyPair(512);
+
+			this->pubKey = pubKey;
+			this->privKey = privKey;
+
+			SQLite::Statement query(*this->db, "INSERT INTO user (uid, public_key, private_key) VALUES (?, ?, ?)");
+			query.bind(1, uid);
+			query.bind(2, pubKey);
+			query.bind(3, privKey);
+
+			query.exec();
+
+			std::cout << "User added" << std::endl;
+		}
+
 		this->cc = &chain;
 
 		/*std::cout << this->privKey << std::endl;
@@ -198,18 +284,18 @@ public:
 	void sendData(std::string data, std::string recieverPubKey)
 	{
 		//std::cout << data << std::endl;
-		const std::string dataHash = sha256(data);
+		const std::string dataHash = data;
 		//std::cout << dataHash << std::endl;
 
 		auto generateSignature = [](std::string privKey, std::string data) -> std::string
 		{
 			std::string signature;
-			AutoSeededRandomPool rng;
-			RSASSA_PKCS1v15_SHA_Signer privkey;
-			privkey.AccessKey().Load(StringSource(privKey, true, new Base64Decoder).Ref());
-			StringSource(data, true,
-				new SignerFilter(rng, privkey,
-					new StringSink(signature)
+			CryptoPP::AutoSeededRandomPool rng;
+			CryptoPP::RSASSA_PKCS1v15_SHA_Signer privkey;
+			privkey.AccessKey().Load(CryptoPP::StringSource(privKey, true, new CryptoPP::Base64Decoder).Ref());
+			CryptoPP::StringSource(data, true,
+				new CryptoPP::SignerFilter(rng, privkey,
+					new CryptoPP::StringSink(signature)
 				)
 			);
 			return signature;
@@ -218,7 +304,7 @@ public:
 		std::string signature = generateSignature(this->privKey, dataHash);
 		//std::cout << signature << std::endl;
 
-		this->cc->addBlock(data, this->pubKey, signature);
+		this->cc->addBlock(dataHash, this->pubKey, signature);
 	}
 
 	std::string getPrivateKey()

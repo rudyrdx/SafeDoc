@@ -1,0 +1,32 @@
+{
+  "chain": [
+    {
+      "currHash": "3f78f6ea720be418c05e7caac761afa76f9ba9c8c8011f9c5452e82b85012cce",
+      "data": "Genesis Block",
+      "index": 0,
+      "prevHash": "0",
+      "timestamp": 1669022989
+    },
+    {
+      "currHash": "60daf1c27105dc5a6658cc8bb6216b949dd35ce85c59d58fa4a0afbdc1a96a06",
+      "data": "362b610700e02343e531f2af6caf5c97a0adf98538e59f4a753a41f250c4516a",
+      "index": 1,
+      "prevHash": "3f78f6ea720be418c05e7caac761afa76f9ba9c8c8011f9c5452e82b85012cce",
+      "timestamp": 1669023050
+    },
+    {
+      "currHash": "1782901c63c45d5a98eac2673e6986c63b6f49438746c29bc53e232cd280a24b",
+      "data": "362b610700e02343e531f2af6caf5c97a0adf98538e59f4a753a41f250c4516a",
+      "index": 2,
+      "prevHash": "60daf1c27105dc5a6658cc8bb6216b949dd35ce85c59d58fa4a0afbdc1a96a06",
+      "timestamp": 1669023055
+    },
+    {
+      "currHash": "f044ae7f73daf97f83d176c088838577bc34aeecf75e96d8e5c3b8a1d0367e23",
+      "data": "362b610700e02343e531f2af6caf5c97a0adf98538e59f4a753a41f250c4516a",
+      "index": 3,
+      "prevHash": "1782901c63c45d5a98eac2673e6986c63b6f49438746c29bc53e232cd280a24b",
+      "timestamp": 1669023061
+    }
+  ]
+}
