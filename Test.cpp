@@ -158,7 +158,6 @@ int main()
 		catch (std::exception e) {
 			cout << e.what() << endl;
 		}
-
 		
 		for (int i = 0; i < chains.size(); i++) {
 			
@@ -166,7 +165,7 @@ int main()
 
 				Wallet s = Wallet(chains[i], js, db);
 				Wallet r = Wallet(chains[i], jrs, db);
-				s.sendData(jd, r.getPublicKey());
+				s.sendData(Transaction(json["sender"], json["receiver"], jd), r.getPublicKey());
 			}
 			catch (std::exception e) {
 				cout << e.what() << endl;
@@ -188,9 +187,7 @@ int main()
 		jr["message"] = "transaction successful";
 		jr["block"] = chains[0].getLastBlock().to_json();
 		
-		
 		res.set_content(jr.dump(2), "application/json");
-
 
 	});
 
