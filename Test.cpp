@@ -132,12 +132,11 @@ int main()
 	svr.Post("/transaction", [&](const httplib::Request& req, httplib::Response& res) {
 
 		//rudy.sendData("lol", yash.getPublicKey());
+		nlohmann::json json;
 
 		auto body = req.body;
-
-		nlohmann::json json;
 		json = nlohmann::json::parse(body);
-		//perform nullptr check
+		
 		if (json["sender"] == nullptr || json["receiver"] == nullptr || json["document"] == nullptr)
 		{
 			res.status = 400;
